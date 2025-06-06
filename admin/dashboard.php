@@ -555,55 +555,54 @@ $page_title = $t['dashboard'];
     </button>
 
     <!-- Sidebar -->
-    <nav class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <div class="logo">
-                <i class="fas fa-kaaba"></i>
-                منصة العمرة
-            </div>
-            <p style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">نظام إدارة شامل</p>
+<nav class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <div class="logo">
+            <i class="fas fa-kaaba"></i>
+            منصة العمرة
         </div>
-        
-        <div class="sidebar-nav">
-            <a href="#" class="nav-item active">
-                <i class="fas fa-tachometer-alt"></i>
-                الرئيسية
-            </a>
-            <a href="#" class="nav-item">
-                <i class="fas fa-users-cog"></i>
-                المديرين
-            </a>
-            <a href="#" class="nav-item">
-                <i class="fas fa-building"></i>
-                الوكالات
-            </a>
-            <a href="#" class="nav-item">
-                <i class="fas fa-users"></i>
-                المعتمرين
-            </a>
-            <a href="#" class="nav-item">
-                <i class="fas fa-tags"></i>
-                العروض والباقات
-            </a>
-            <a href="#" class="nav-item">
-                <i class="fas fa-clipboard-list"></i>
-                الطلبات
-            </a>
-            <a href="#" class="nav-item">
-                <i class="fas fa-chart-line"></i>
-                التقارير والإحصائيات
-            </a>
-            <a href="#" class="nav-item">
-                <i class="fas fa-cog"></i>
-                الإعدادات
-            </a>
-            <a href="#" class="nav-item">
-                <i class="fas fa-sign-out-alt"></i>
-                تسجيل الخروج
-            </a>
-        </div>
-    </nav>
-
+        <p style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">نظام إدارة شامل</p>
+    </div>
+    
+    <div class="sidebar-nav">
+        <a href="<?php echo BASE_URL; ?>/admin/dashboard.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : ''; ?>">
+            <i class="fas fa-tachometer-alt"></i>
+            الرئيسية
+        </a>
+        <a href="<?php echo BASE_URL; ?>/admin/views/admins/index.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'index.php' && strpos($_SERVER['REQUEST_URI'], 'admins') !== false ? 'active' : ''; ?>">
+            <i class="fas fa-users-cog"></i>
+            المديرين
+        </a>
+        <a href="<?php echo BASE_URL; ?>/admin/views/agencies/index.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'index.php' && strpos($_SERVER['REQUEST_URI'], 'agencies') !== false ? 'active' : ''; ?>">
+            <i class="fas fa-building"></i>
+            الوكالات
+        </a>
+        <a href="<?php echo BASE_URL; ?>/admin/views/pilgrims/index.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'index.php' && strpos($_SERVER['REQUEST_URI'], 'pilgrims') !== false ? 'active' : ''; ?>">
+            <i class="fas fa-users"></i>
+            المعتمرين
+        </a>
+        <a href="<?php echo BASE_URL; ?>/admin/views/offers/index.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'index.php' && strpos($_SERVER['REQUEST_URI'], 'offers') !== false ? 'active' : ''; ?>">
+            <i class="fas fa-tags"></i>
+            العروض والباقات
+        </a>
+        <a href="#" class="nav-item">
+            <i class="fas fa-clipboard-list"></i>
+            الطلبات
+        </a>
+        <a href="#" class="nav-item">
+            <i class="fas fa-chart-line"></i>
+            التقارير والإحصائيات
+        </a>
+        <a href="#" class="nav-item">
+            <i class="fas fa-cog"></i>
+            الإعدادات
+        </a>
+        <a href="<?php echo BASE_URL; ?>/admin/logout.php" class="nav-item">
+            <i class="fas fa-sign-out-alt"></i>
+            تسجيل الخروج
+        </a>
+    </div>
+</nav>
     <!-- Main Content -->
     <main class="main-content">
         <!-- Header -->
@@ -634,7 +633,7 @@ $page_title = $t['dashboard'];
                 </div>
             </div>
 
-            <div class="stat-card success">
+            <!-- <div class="stat-card success">
                 <div class="stat-content">
                     <div class="stat-info">
                         <h3>المعتمرين المسجلين</h3>
@@ -642,7 +641,7 @@ $page_title = $t['dashboard'];
                     </div>
                     <i class="fas fa-users stat-icon"></i>
                 </div>
-            </div>
+            </div> -->
 
             <div class="stat-card warning">
                 <div class="stat-content">

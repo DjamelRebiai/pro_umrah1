@@ -1,240 +1,275 @@
 <?php
-session_start();
+// Activation des erreurs pour le développement
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+require_once __DIR__ . '/../../../config/config.php';
+require_once __DIR__ . '/../../../includes/db.php';
+
+// التحقق من تسجيل الدخول
 if (!isset($_SESSION['admin_id'])) {
-    header('Location: login.php');
+    header('Location: ' . BASE_URL . '/admin/views/auth/login.php');
     exit;
 }
-require_once '../includes/db.php';
 
-// منطق الصلاحيات
+// التحقق من الصلاحيات
 $admin_id = $_SESSION['admin_id'];
 $stmt = $pdo->prepare('SELECT * FROM admins WHERE id = ?');
 $stmt->execute([$admin_id]);
-$admin = $stmt->fetch();
+$current_admin = $stmt->fetch();
 
-$permissions = [];
-$stmt = $pdo->prepare('SELECT * FROM admin_permissions WHERE admin_id = ?');
-$stmt->execute([$admin_id]);
-foreach ($stmt->fetchAll() as $perm) {
-    $permissions[$perm['permission_key']] = $perm;
-}
+// التحقق من صلاحيات إدارة المدراء
+$stmt = $pdo->prepare('SELECT * FROM admin_permissions WHERE admin_id = ? AND permission_key = ?');
+$stmt->execute([$admin_id, 'manage_admins']);
+$admin_permission = $stmt->fetch();
 
-$is_super_admin = ($admin['id'] == 1 || $admin['username'] === 'admin');
-$can_manage_admins = $is_super_admin || !empty($permissions['manage_admins']['allow_view']);
+$can_manage_admins = ($current_admin['id'] == 1) || 
+                    ($admin_permission && $admin_permission['allow_view']);
 
 if (!$can_manage_admins) {
-    header('Location: dashboard.php?lang=' . (isset($_GET['lang']) ? $_GET['lang'] : 'ar'));
+    header('Location: ' . BASE_URL . '/admin/dashboard.php');
     exit;
 }
 
-$texts = [    'ar' => [
-        'title' => 'إدارة المدراء',
-        'add_admin' => 'إضافة مدير جديد',
-        'edit_admin' => 'تعديل المدير',
-        'username' => 'اسم المستخدم',
-        'password' => 'كلمة المرور',
-        'email' => 'البريد الإلكتروني',
-        'full_name' => 'الاسم الكامل',
-        'permissions' => 'الصلاحيات',
-        'actions' => 'إجراءات',
-        'view' => 'عرض',
-        'add' => 'إضافة',
-        'edit' => 'تعديل',
-        'delete' => 'حذف',
-        'confirm_delete' => 'هل أنت متأكد من حذف هذا المدير؟',
-        'agency_management' => 'إدارة الوكالات',
-        'pilgrim_management' => 'إدارة المعتمرين',
-        'admin_management' => 'إدارة المدراء',
-        'offer_management' => 'إدارة العروض',
-        'success' => 'تمت العملية بنجاح'
-    ],    'fr' => [
-        'title' => 'Gestion des administrateurs',
-        'add_admin' => 'Ajouter un administrateur',
-        'edit_admin' => 'Modifier l\'administrateur',
-        'username' => 'Nom d\'utilisateur',
-        'password' => 'Mot de passe',
-        'email' => 'E-mail',
-        'full_name' => 'Nom complet',
-        'permissions' => 'Permissions',
-        'actions' => 'Actions',
-        'view' => 'Voir',
-        'add' => 'Ajouter',
-        'edit' => 'Modifier',
-        'delete' => 'Supprimer',
-        'confirm_delete' => 'Êtes-vous sûr de vouloir supprimer cet administrateur ?',
-        'agency_management' => 'Gestion des agences',
-        'pilgrim_management' => 'Gestion des pèlerins',
-        'admin_management' => 'Gestion des administrateurs',
-        'offer_management' => 'Gestion des offres',
-        'success' => 'Opération réussie'
-    ]
-];
+// معالجة العمليات POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (isset($_POST['action'])) {
+        switch ($_POST['action']) {
+            case 'add':
+                if (isset($_POST['username'], $_POST['full_name'], $_POST['email'], $_POST['password'])) {
+                    try {
+                        // التحقق من عدم تكرار اسم المستخدم
+                        $stmt = $pdo->prepare('SELECT id FROM admins WHERE username = ?');
+                        $stmt->execute([$_POST['username']]);
+                        if ($stmt->fetch()) {
+                            $_SESSION['error'] = "اسم المستخدم موجود مسبقاً";
+                        } else {
+                            // إضافة المدير الجديد
+                            $stmt = $pdo->prepare('INSERT INTO admins (username, password, full_name, email) VALUES (?, ?, ?, ?)');
+                            $hashed_password = password_hash($_POST['password'], PASSWORD_DEFAULT);
+                            $stmt->execute([
+                                $_POST['username'],
+                                $hashed_password,
+                                $_POST['full_name'],
+                                $_POST['email']
+                            ]);
+                            
+                            // إضافة الصلاحيات
+                            $new_admin_id = $pdo->lastInsertId();
+                            if (isset($_POST['permissions']) && is_array($_POST['permissions'])) {
+                                $stmt = $pdo->prepare('INSERT INTO admin_permissions (admin_id, permission_key, allow_view, allow_add, allow_edit, allow_delete) VALUES (?, ?, true, true, true, true)');
+                                foreach ($_POST['permissions'] as $permission) {
+                                    $stmt->execute([$new_admin_id, $permission]);
+                                }
+                            }
+                            $_SESSION['success'] = "تمت إضافة المدير بنجاح";
+                        }
+                    } catch (PDOException $e) {
+                        $_SESSION['error'] = "حدث خطأ أثناء إضافة المدير: " . $e->getMessage();
+                    }
+                }
+                break;
 
-$lang = isset($_GET['lang']) && $_GET['lang'] === 'fr' ? 'fr' : 'ar';
-$t = $texts[$lang];
-$page_title = $t['title'];
+            case 'delete':
+                if (isset($_POST['admin_id']) && $_POST['admin_id'] != 1) {
+                    try {
+                        $stmt = $pdo->prepare('DELETE FROM admins WHERE id = ? AND id != 1');
+                        $stmt->execute([$_POST['admin_id']]);
+                        $_SESSION['success'] = "تم حذف المدير بنجاح";
+                    } catch (PDOException $e) {
+                        $_SESSION['error'] = "حدث خطأ أثناء حذف المدير";
+                    }
+                }
+                break;
+        }
+    }
+}
 
-// جلب جميع المدراء
-$stmt = $pdo->query('SELECT * FROM admins ORDER BY id ASC');
+// جلب قائمة المدراء
+$stmt = $pdo->query('SELECT a.*, 
+    (SELECT COUNT(*) FROM admin_permissions WHERE admin_id = a.id) as permissions_count 
+    FROM admins a ORDER BY a.id');
 $admins = $stmt->fetchAll();
 
-require_once 'template/sidebar.php';
 ?>
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إدارة المدراء - منصة العمرة</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <?php require_once __DIR__ . '/../../template/shared-styles.php'; ?>
+</head>
+<body>
+    <?php require_once __DIR__ . '/../../template/shared-sidebar.php'; ?>
+    
+    <!-- Main Content -->
+<main class="main-content">
+    <div class="header">
+        <div class="header-content">
+            <div class="welcome-text">
+                <h1>إدارة المدراء</h1>
+                <p>إضافة وتعديل وحذف المدراء</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="openModal('adminModal')">
+                    <i class="fas fa-plus"></i> إضافة مدير جديد
+                </button>
+            </div>
+        </div>
+    </div>
 
-<style>
-    .table-container {
-        margin: 20px;
-        background: #fff;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        overflow-x: auto;
-    }
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.95em;
-    }
-    th {
-        background: #f8f9fa;
-        padding: 12px;
-        text-align: <?php echo $lang === 'ar' ? 'right' : 'left'; ?>;
-        border-bottom: 2px solid #dee2e6;
-        white-space: nowrap;
-    }
-    td {
-        padding: 12px;
-        border-bottom: 1px solid #dee2e6;
-        vertical-align: middle;
-    }
-    .actions {
-        display: flex;
-        gap: 8px;
-        justify-content: <?php echo $lang === 'ar' ? 'flex-end' : 'flex-start'; ?>;
-        white-space: nowrap;
-    }
-    .btn {
-        padding: 6px 12px;
-        border-radius: 4px;
-        text-decoration: none;
-        color: #fff;
-        font-size: 0.9em;
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        transition: all 0.2s;
-    }
-    .btn-edit {
-        background: var(--primary-color);
-    }
-    .btn-delete {
-        background: #dc3545;
-    }
-    .btn:hover {
-        opacity: 0.9;
-        transform: translateY(-1px);
-    }
-    .permission-badge {
-        display: inline-block;
-        padding: 4px 8px;
-        background: #e9ecef;
-        border-radius: 4px;
-        margin: 2px;
-        font-size: 0.9em;
-        color: #495057;
-    }
-    .add-button {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 8px 16px;
-        background: var(--primary-color);
-        color: #fff;
-        text-decoration: none;
-        border-radius: 6px;
-        margin: 20px;
-        transition: all 0.2s;
-    }
-    .add-button:hover {
-        opacity: 0.9;
-        transform: translateY(-1px);
-    }
-    @media (max-width: 768px) {
-        .table-container {
-            margin: 10px;
-            border-radius: 6px;
-        }
-        td, th {
-            padding: 8px;
-        }
-        .permission-badge {
-            font-size: 0.8em;
-        }
-    }
-</style>
+    <?php if (isset($_SESSION['success'])): ?>
+        <div class="alert alert-success">
+            <?php echo $_SESSION['success']; unset($_SESSION['success']); ?>
+        </div>
+    <?php endif; ?>
 
-<?php if ($is_super_admin || !empty($permissions['manage_admins']['allow_add'])): ?>
-<a href="add_admin.php?lang=<?php echo $lang; ?>" class="add-button">
-    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-    </svg>
-    <?php echo $t['add_admin']; ?>
-</a>
-<?php endif; ?>
+    <?php if (isset($_SESSION['error'])): ?>
+        <div class="alert alert-danger">
+            <?php echo $_SESSION['error']; unset($_SESSION['error']); ?>
+        </div>
+    <?php endif; ?>
 
-<div class="table-container">
-    <table>
-        <tr>
-            <th><?php echo $t['username']; ?></th>
-            <th><?php echo $t['full_name']; ?></th>
-            <th><?php echo $t['email']; ?></th>
-            <th><?php echo $t['permissions']; ?></th>
-            <th><?php echo $t['actions']; ?></th>
-        </tr>
-        <?php foreach ($admins as $a): ?>
-        <tr>
-            <td><?php echo htmlspecialchars($a['username']); ?></td>
-            <td><?php echo htmlspecialchars($a['full_name']); ?></td>
-            <td><?php echo htmlspecialchars($a['email']); ?></td>
-            <td>                <?php
-                $stmt = $pdo->prepare('SELECT * FROM admin_permissions WHERE admin_id = ?');
-                $stmt->execute([$a['id']]);
-                $admin_perms = $stmt->fetchAll();
-                foreach ($admin_perms as $perm):
-                    $actions = [];
-                    if ($perm['allow_view']) $actions[] = $t['view'];
-                    if ($perm['allow_add']) $actions[] = $t['add'];
-                    if ($perm['allow_edit']) $actions[] = $t['edit'];
-                    if ($perm['allow_delete']) $actions[] = $t['delete'];
-                    if ($actions):
-                ?>
-                    <span class="permission-badge">
-                        <?php echo $t[$perm['permission_key']] ?? $perm['permission_key']; ?>
-                        (<?php echo implode(', ', $actions); ?>)
-                    </span>
-                <?php 
-                    endif;
-                endforeach;
-                ?>
-            </td>
-            <td class="actions">
-                <?php if ($a['id'] != 1 && $a['username'] !== 'admin' && $a['id'] != $admin_id): ?>
-                    <?php if ($is_super_admin || !empty($permissions['manage_admins']['allow_edit'])): ?>
-                        <a href="edit_admin.php?id=<?php echo $a['id']; ?>&lang=<?php echo $lang; ?>" class="btn btn-edit">
-                            <?php echo $t['edit']; ?>
-                        </a>
-                    <?php endif; ?>
-                    <?php if ($is_super_admin || !empty($permissions['manage_admins']['allow_delete'])): ?>
-                        <a href="?action=delete&id=<?php echo $a['id']; ?>&lang=<?php echo $lang; ?>" 
-                           class="btn btn-delete" 
-                           onclick="return confirm('<?php echo $t['confirm_delete']; ?>')">
-                            <?php echo $t['delete']; ?>
-                        </a>
-                    <?php endif; ?>
-                <?php endif; ?>
-            </td>
-        </tr>
-        <?php endforeach; ?>
-    </table>
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>اسم المستخدم</th>
+                            <th>الاسم الكامل</th>
+                            <th>البريد الإلكتروني</th>
+                            <th>عدد الصلاحيات</th>
+                            <th>تاريخ الإنشاء</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($admins as $admin): ?>
+                        <tr>
+                            <td><?php echo htmlspecialchars($admin['id']); ?></td>
+                            <td><?php echo htmlspecialchars($admin['username']); ?></td>
+                            <td><?php echo htmlspecialchars($admin['full_name']); ?></td>
+                            <td><?php echo htmlspecialchars($admin['email'] ?? ''); ?></td>
+                            <td><?php echo $admin['permissions_count']; ?></td>
+                            <td><?php echo date('Y-m-d', strtotime($admin['created_at'])); ?></td>
+                            <td>
+                                <?php if ($admin['id'] != 1): ?>
+                                <button class="btn btn-primary btn-sm" onclick="editAdmin(<?php echo $admin['id']; ?>)">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <form method="post" style="display: inline;" onsubmit="return confirm('هل أنت متأكد من حذف هذا المدير؟')">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="admin_id" value="<?php echo $admin['id']; ?>">
+                                    <button type="submit" class="btn btn-danger btn-sm">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- Modal for Adding/Editing Admin -->
+<div class="modal" id="adminModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 class="modal-title">إضافة مدير جديد</h2>
+            <button type="button" class="close-btn" onclick="closeModal()">&times;</button>
+        </div>
+        <form id="admin-form" method="post">
+            <input type="hidden" name="action" value="add">
+            <div class="form-group">
+                <label for="username">اسم المستخدم</label>
+                <input type="text" class="form-control" id="username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="full_name">الاسم الكامل</label>
+                <input type="text" class="form-control" id="full_name" name="full_name" required>
+            </div>
+            <div class="form-group">
+                <label for="email">البريد الإلكتروني</label>
+                <input type="email" class="form-control" id="email" name="email" required>
+            </div>
+            <div class="form-group">
+                <label for="password">كلمة المرور</label>
+                <input type="password" class="form-control" id="password" name="password" required>
+            </div>
+            <div class="form-group">
+                <label>الصلاحيات</label>
+                <div class="permissions-container">
+                    <label class="checkbox-container">
+                        <input type="checkbox" name="permissions[]" value="manage_agencies">
+                        إدارة الوكالات
+                    </label>
+                    <label class="checkbox-container">
+                        <input type="checkbox" name="permissions[]" value="manage_pilgrims">
+                        إدارة المعتمرين
+                    </label>
+                    <label class="checkbox-container">
+                        <input type="checkbox" name="permissions[]" value="manage_offers">
+                        إدارة العروض
+                    </label>
+                </div>
+            </div>
+            <div class="form-group">
+                <button type="submit" class="btn btn-primary">حفظ</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">إلغاء</button>
+            </div>
+        </form>
+    </div>
 </div>
 
-<?php require_once 'template/footer.php'; ?>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
+<script>
+// تنشيط السايدبار وإدارة الصفحات
+document.addEventListener('DOMContentLoaded', function() {
+    // إظهار رسائل النجاح والخطأ
+    const alerts = document.querySelectorAll('.alert');
+    alerts.forEach(alert => {
+        setTimeout(() => {
+            alert.style.opacity = '0';
+            setTimeout(() => alert.remove(), 300);
+        }, 3000);
+    });
+});
+
+// إدارة المودال
+function openModal(id) {
+    document.getElementById(id).classList.add('show');
+}
+
+function closeModal() {
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.classList.remove('show');
+    });
+}
+
+// تعديل المدير
+function editAdmin(id) {
+    // تحويل المستخدم إلى صفحة التعديل
+    window.location.href = `edit.php?id=${id}`;
+}
+
+// إغلاق المودال عند النقر خارجه
+window.onclick = function(event) {
+    if (event.target.classList.contains('modal')) {
+        closeModal();
+    }
+}
+</script>
+
+    <?php require_once __DIR__ . '/../../template/footer.php'; ?>
+</body>
+</html>
